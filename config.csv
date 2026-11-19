@@ -1,0 +1,1 @@
+ 20261118-214304,[command] python tools/run_expid_fixed.py --config /tmp/h5lab/config/ --expid FCNv2_h5 --gpu 0 --repo /public/home/zengzhicun/user/huanghaijun/projects/course_ctr_fcn_20261118/code/FCN_repo --result-json /tmp/c1/result.json,[exp_id] FCNv2_h5,[dataset_id] Criteo_smoke_h5,[train] N.A.,[val] logloss: 0.692915 - AUC: 0.508539,[test] logloss: 0.689065 - AUC: 0.561850

@@ -1,0 +1,33 @@
+# ===== 数据：体积大，不入库，由 docs 里的下载与转换步骤重建 =====
+data/
+subseth5/
+testh5/
+e0_dryrun/
+smokereal/
+latency/
+latency2/
+lat_split/
+bench/
+wheels/
+wheels_unused/
+
+# ===== 运行产物：实验输出，按需归档，不逐次提交 =====
+runs/
+logs/
+*.log
+!docs/**/*.log
+
+# ===== 崩溃转储 / 临时文件 =====
+core.*
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
+
+# ===== 作者仓库原样保留（作为对照基准，体积 2.7M，入库）======
+# code/FCN_repo 保留
+
+# ===== 单个超大文件 =====
+code/FCN.tar.gz
+checkpoints/
+scripts/_smoke_remote/
