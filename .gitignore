@@ -35,3 +35,7 @@ data/raw/
 data/Avazu_x4/
 data/iPinYou/
 data/KKBox_x1/
+
+# 本地备份
+*.bak_*
+*.bak
