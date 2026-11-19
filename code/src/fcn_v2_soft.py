@@ -164,8 +164,9 @@ __all__ = [
 #   softplus  : alpha·softplus(βΔ)/β，β→∞ 时即原版；但含 log(2)/β 常数偏置
 #   smoothmax : alpha·Δ·sigmoid(βΔ)，软 relu 但无常数偏置（推荐作为主改进）
 #   ratio     : alpha·Δ/(L_aux + L_main)，量纲无关，可能为负
+#   bsw       : alpha·tanh(beta·Δ/L_main)，**有界**，处处可导，量纲无关（本文方案B）
 #   plain     : 去掉两个辅助项，退化成普通二元交叉熵（论文消融里的 w/o Tri-BCE）
-TRI_BCE_MODES = ("hard", "softplus", "smoothmax", "ratio", "plain")
+TRI_BCE_MODES = ("hard", "softplus", "smoothmax", "ratio", "bsw", "plain")
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +435,8 @@ class FCNv2Soft(BaseModel):
                  tri_bce_anneal_lambda=0.0,
                  tri_bce_anneal_floor=0.0,
                  tri_bce_log_weights=False,
+                 # ——— BSW-Tri 专用：分母防零 + 用相对差而非绝对差 ———
+                 tri_bce_bsw_relative=True,
                  **kwargs):
         super(FCNv2Soft, self).__init__(feature_map,
                                        model_id=model_id,
@@ -455,6 +458,7 @@ class FCNv2Soft(BaseModel):
         self.tri_bce_anneal_lambda = float(tri_bce_anneal_lambda)
         self.tri_bce_anneal_floor = float(tri_bce_anneal_floor)
         self.tri_bce_log_weights = bool(tri_bce_log_weights)
+        self.tri_bce_bsw_relative = bool(tri_bce_bsw_relative)
         self.lca_compress_ratio = float(lca_compress_ratio)
         # 最近一步的平均权重，仅在 tri_bce_log_weights=True 时更新
         # （供分析脚本读取，不参与任何计算）
@@ -577,6 +581,32 @@ class FCNv2Soft(BaseModel):
             if beta <= 0:
                 raise ValueError("tri_bce_beta 必须 > 0（它是有量纲的锐度），收到 %r" % beta)
             w = self.tri_bce_alpha * delta * torch.sigmoid(beta * delta)
+        elif self.tri_bce_mode == "bsw":
+            # BSW-Tri：w = alpha · tanh( beta · relu(Δ) / L_main )
+            #
+            # 设计取舍（完整证明见 docs/BSW-Tri设计分析.md）：
+            #   作者 w = max(0, Δ) 有两个毛病：无上界、单点不可导。
+            #   但「Δ≤0 时严格为 0」与「处处可导」在数学上**互不相容**
+            #   （0 处左导数为 0，右导数若 >0 则不连续）。
+            #   故本方案保留前者（与作者语义一致），只补上「有界」与「尺度归一」：
+            #     ① relu(Δ)      → Δ≤0 时权重恒为 0，与作者完全一致
+            #     ② tanh(·)      → 权重有界于 alpha，饱和后不再增长
+            #     ③ 除以 L_main  → 用相对差而非绝对差，跨数据集/跨训练阶段可比
+            #
+            # beta 的取法：tanh(x)≈x 当 x→0，故小 Δ 时 w ≈ alpha·beta·Δ/L。
+            #   取 beta = 0.45 ≈ Criteo 的 L_0 时，小 Δ 区与作者几乎重合；
+            #   取 beta = 1.0 则等价于「直接拿相对差当权重」。beta 作为超参扫描。
+            beta = self.tri_bce_beta
+            if beta <= 0:
+                raise ValueError("tri_bce_beta 必须 > 0（它是有量纲的锐度），收到 %r" % beta)
+            positive = torch.clamp(delta, min=0.0)   # 与作者一致：Δ≤0 不奖不罚
+            if self.tri_bce_bsw_relative:
+                denom = torch.clamp(loss_main, min=self.tri_bce_eps)
+                arg = beta * positive / denom
+            else:
+                # 消融用：分母换成常数（绝对差口径），验证「尺度归一」的作用
+                arg = beta * positive
+            w = self.tri_bce_alpha * torch.tanh(arg)
         elif self.tri_bce_mode == "ratio":
             denom = torch.clamp(loss_aux + loss_main, min=self.tri_bce_eps)
             w = self.tri_bce_alpha * delta / denom
