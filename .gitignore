@@ -31,3 +31,7 @@ __pycache__/
 code/FCN.tar.gz
 checkpoints/
 scripts/_smoke_remote/
+data/raw/
+data/Avazu_x4/
+data/iPinYou/
+data/KKBox_x1/

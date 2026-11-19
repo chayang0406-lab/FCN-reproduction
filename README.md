@@ -1,26 +1,27 @@
-# FCN 复现与大数理处理实验（海光 DCU 单卡）
+# FCN 复现与环境迭代（海光 DCU 单卡）
 
 复现 **FCN: Fusing Exponential and Linear Cross Network for CTR Prediction**（KDD'26，DOI `10.1145/3770854.3780177`，arXiv `2407.13349v8`），
-并在海光 DCU K500SM_AI 单卡上完成多种子噪声基线与两处小改进。
+在现有开源实现基础上做**可移植性/性能优化**，并补齐论文要求的多数据集与基线对比。
 
-> **本文档是项目索引，不是课程报告。** 课程设计报告见 [`report/课程设计报告.md`](report/课程设计报告.md)。
+> 本文档是项目索引。课程报告见 [`report/课程设计报告.md`](report/课程设计报告.md)。
+
+**仓库**：https://github.com/buzhimingLF/FCN-Fusing-Exponential-and-Linear-Cross-Network-for-Click-Through-Rate-Prediction
 
 ---
 
-## 一、当前状态（截至 2026-11-19）
+## 一、当前状态（2026-11-19 15:50）
 
 | 项 | 状态 |
 |---|---|
-| 数据管道（CSV → h5） | ✅ 完成，Σvocab = 910,747 与作者日志 39/39 字段逐一相符 |
-| E0 基线（单种子） | ✅ 完成，valid AUC 0.815598 / test 0.816158 |
-| E0 基线（8 种子） | 🔄 运行中（seed2025 复用，实跑 2026–2032） |
-| E4-B LCA 压缩率扫描 | ⏳ 未执行 |
-| E3 Tri-BCE 配对检验 | ⏳ 未执行 |
-| E4-A 组件消融 | ⏳ 未执行 |
-
-**2026-11-19 02:00–14:45 曾发生一次节点故障**（SSH 在密钥交换阶段失败，96 分钟），
-实验中断；恢复后数据与已完成结果完好（共享盘持久化），已重跑。
-经过见 [`docs/节点故障与恢复指引_20261119.md`](docs/节点故障与恢复指引_20261119.md)。
+| 环境（DTK 26.04 / torch 2.7.1 / fuxictr 2.0.1） | ✅ 可用 |
+| **外网** | ✅ 可用，需 `source /root/private_data/.ai_user_info/ai_proxy` |
+| 数据：Criteo | ✅ 完成（h5 三份，Σvocab=910,747 与作者 39/39 相符） |
+| 数据：iPinYou | ✅ 已下载解压，行数 19,495,974 **与论文精确相符** |
+| 数据：KKBox | ✅ 已下载解压，行数 7,377,418 **与论文精确相符** |
+| 数据：Avazu | ⚠️ 已解压，行数待复核（首次统计受 IO 干扰） |
+| E0 基线 8 种子 | 🔄 运行中（seed2025 完成，2026 进行中） |
+| 基线模型（12 个） | ⏳ 代码已就位（FuxiCTR model_zoo），待接入 |
+| 性能优化 | ⏳ 待开展（见 §五） |
 
 ---
 
@@ -29,76 +30,139 @@
 ```
 course_ctr_fcn_20261118/
 ├── code/
-│   ├── FCN_repo/           # 作者原始仓库（零改动，作为对照基准）
-│   ├── src/                # 改进实现（LCA 压缩率参数化 + Tri-BCE 软权重）
-│   └── configs/            # 15 个 expid 配置
-├── tools/                  # 工具脚本（35 个），见下方说明
-├── scripts/                # 早期探索脚本
-├── docs/                   # 39 份过程文档（实测记录、坑位、方法论）
-├── report/                 # 课程设计报告
-├── configs/
-├── data/                   # 不入库：Criteo_x4 zip/CSV/h5，共 28 GB
-└── runs/                   # 不入库：实验输出
+│   ├── FCN_repo/           作者原始仓库（零改动，复现基准）
+│   ├── src/                改进实现（LCA 参数化 + Tri-BCE 软权重）
+│   └── configs/            15 个 expid 配置
+├── tools/                  工具脚本（35 个）
+├── scripts/                早期探索脚本
+├── docs/                   39 份过程文档
+├── report/                 课程设计报告
+├── data/                   不入库（28 GB）
+│   ├── Criteo_x4_10_h5/    h5 成品
+│   ├── raw/                三数据集 zip
+│   ├── Avazu_x4/           CSV
+│   ├── iPinYou/            CSV
+│   └── KKBox_x1/           CSV
+└── runs/                   不入库（实验输出）
 ```
-
-### `tools/` 重点脚本
-
-| 脚本 | 用途 |
-|---|---|
-| `build_h5.py` | CSV → h5，含双硬断言（Σvocab、参数量） |
-| `run_e0_baseline_v2.py` | E0 driver（修复官方 3 处缺陷） |
-| `e0_startup_check.py` | 启动 5 项硬断言 + 解析交叉验证 |
-| `author_baseline.py` | 作者基准常量（与日志交叉核验） |
-| `verify_h5_dataset.py` | h5 独立验收（第三方，不采信转换器结论） |
-| `verify_improved_configs.py` | 15 配置 4 维闸门（参数量闸门对 8/15 配置是盲的） |
-| `paired_analysis.py` | 配对检验（含配对性硬校验） |
-| `run_improved_driver.py` | E3/E4 driver |
-| `param_formula.py` | 参数量闭式公式 |
 
 ---
 
-## 三、环境
+## 三、关键事实（勿重复调研）
+
+### 3.1 环境
 
 ```
 加速卡 : 海光 DCU K500SM_AI (gfx928, 120 CU, 63.98 GiB)
-DTK    : 26.04      需先 source /opt/dtk-26.04/env.sh
+DTK    : 26.04      必须先 source /opt/dtk-26.04/env.sh
 PyTorch: 2.7.1+das.opt1.dtk2604
-Python : 3.11.9
+Python : 3.11.9（/usr/local/bin/python3）
 框架   : fuxictr==2.0.1
-关键锁 : scikit-learn==1.4.2（≥1.5 移除了 log_loss 的 eps 参数，会在第 2 轮之后崩）
+必锁   : scikit-learn==1.4.2（≥1.5 移除 log_loss 的 eps 参数，第 2 轮后崩）
          numpy==1.25.0
+cgroup : 6 核 CPU / 115 GB 内存
 ```
 
-**该节点无外网出口**，所有 wheel 需本地下载后上传安装（`pip install --no-index --find-links`）。
+**外网**（此前误判为无外网，已更正）：
+```bash
+source /root/private_data/.ai_user_info/ai_proxy
+# http(s)_proxy -> 10.15.100.43:3120；no_proxy 含 ksai.scnet.cn
+# 实测 github/pypi/huggingface 均 HTTP 200
+```
+
+### 3.2 各数据集超参**各不相同**（关键，不能一套配置通吃）
+
+| 数据集 | batch | emb_dim | dropout | exp层 | lin层 | heads | batch_norm |
+|---|---|---|---|---|---|---|---|
+| **Criteo** | **8192** | 16 | 0.1 | 4 | 1 | 1 | **False** |
+| **Avazu** | 10000 | 16 | **0** | 4 | 4 | **4** | True |
+| **KKBox** | 10000 | **128** | 0.2 | 4 | **0** | 1 | True |
+| **iPinYou** | 4096 | 16 | **0.3** | **0** | 4 | 2 | True |
+| **ML-1M** | 4096 | 16 | 0.1 | **2** | **3** | 1 | True |
+
+来源：`code/FCN_repo/config/model_config.yaml`。
+反直觉点：KKBox 的 emb_dim=128；iPinYou 的 exp 层=0（无 ECN）；Avazu heads=4；Criteo 是唯一 batch_norm=False。
+
+### 3.3 论文正文与作者实际实现**三处不一致**（一律以后者为准）
+
+| 项目 | 论文正文 | 作者实现 |
+|---|---|---|
+| Criteo batch_size | 10000 | **8192**（日志 4477 batches 可反证） |
+| 分桶规则 | `⌊log2(x)⌋` | `⌊(ln x)²⌋` |
+| `x ≤ 2` 时 | 映射到 1 | 保留原值（0/1/2） |
+
+### 3.4 数据集规模（论文 Table 2）
+
+| 数据集 | 实例数 | 字段 | 特征数 | 我们的核对 |
+|---|---|---|---|---|
+| Criteo | 45,840,617 | 39 | 910,747 | ✅ 精确相符 |
+| iPinYou | 19,495,974 | 16 | 665,765 | ✅ 精确相符 |
+| KKBox | 7,377,418 | 13 | 91,756 | ✅ 精确相符 |
+| Avazu | 40,428,967 | 24 | 3,750,999 | ⚠️ 待复核 |
 
 ---
 
-## 四、数据重建
+## 四、数据集准备
 
 ```bash
-# 1. 下载 Criteo_x4（4.05 GB）
-#    https://huggingface.co/datasets/reczoo/Criteo_x4  →  Criteo_x4.zip
-#    md5 应为 41ca8e3ef1fa1dadf95132f5e11570e1
+source /root/private_data/.ai_user_info/ai_proxy
+P=/public/home/zengzhicun/user/huanghaijun/projects/course_ctr_fcn_20261118
+mkdir -p $P/data/raw && cd $P/data/raw
 
-# 2. 解压到 data/csv/（应得 train 36,672,493 / valid 4,584,062 / test 4,584,062 行）
+# 三个数据集（reczoo 官方发布版）
+for ds in iPinYou_x1 KKBox_x1 Avazu_x4; do
+  curl -sSL -o ${ds}.zip "https://huggingface.co/datasets/reczoo/${ds}/resolve/main/${ds}.zip"
+done
 
-# 3. 转 h5（约 64 分钟，峰值内存 45 GB）
-python3 tools/build_h5.py --csv-dir data/csv --out data/Criteo_x4_10_h5 \
-        --data-block-size 0
-
-# 4. 独立验收
-python3 tools/verify_h5_dataset.py --data-dir data/Criteo_x4_10_h5 --strict
+# 解压
+cd $P/data
+unzip -q raw/iPinYou_x1.zip -d iPinYou
+unzip -q raw/KKBox_x1.zip  -d KKBox_x1
+unzip -q raw/Avazu_x4.zip  -d Avazu_x4
 ```
 
-> **重跑前必须先 `rm -f data/Criteo_x4_10_h5/feature_map.json`**。
-> 残留的 feature_map.json 会让 `build_dataset` 打 `Skip rebuilding` 并静默跳过整个转换
-> ——**「秒完成并报成功」但 h5 是空的**，比直接报错更危险。
+**压缩包很小**（iPinYou 208 MB / KKBox 963 MB / Avazu 1.3 GB），解压后 CSV 约 2 GB / 1 GB / 4.7 GB。
 
 ---
 
-## 五、跑实验
+## 五、性能优化清单（当前主线）
+
+目标：**在 6 核 / 115 GB 的小机器上跑起来，且不改变数值结果**。
+
+| # | 问题 | 位置 | 现状 | 优化方向 |
+|---|---|---|---|---|
+| 1 | `convert_to_bucket` 逐元素 Python 调用 | `fuxictr.datasets.criteo` | 4.77 亿次调用，约占预处理 99% 时间 | 向量化 `np.floor(np.log(arr)**2)`，预期快 20–50× |
+| 2 | `read_csv` 一次性全量载入 | `FeatureProcessor.read_csv` | `pd.read_csv(dtype=object)`，Criteo 峰值 45 GB | 改 `chunksize` 流式 |
+| 3 | `preprocess` 新建列时旧列未释放 | `convert_to_bucket` 的 `.map()` | 峰值比预期高 5% | 原地替换 |
+| 4 | 训练与重 IO 任务并行 | 操作纪律 | 实测把 ep7 从 260 s 拖到 **1266 s** | 串行：训练期间不做重 IO |
+
+> **优化铁律**：任何改动必须先用 Criteo 已验的 `Σvocab = 910,747` 与 `I1 = 44` 做回归测试。
+> 只要一个桶的归属变了，这两个数就对不上——**这是免费的精确判据**。
+
+---
+
+## 六、基线
+
+论文要求 16 个基线。FuxiCTR 官方 `model_zoo` 提供 **12 个现成实现**（与作者同一框架）：
+
+```
+DCN(DCNv1) DCNv2 DeepFM WideDeep PNN xDeepFM AutoInt AFN
+EDCN MaskNet EulerNet FinalMLP
+```
+
+缺 3 个：`FINAL`（SIGIR'23）、`RFM`（2024）、`DLF`（2025）——引用 reczoo Open Benchmarking 公开榜单值，报告中标注来源。
+
+**超参策略**：每个基线使用该作者为该数据集给出的配置；仅对 FCN / DCNv1 / DCNv2 做 dropout 网格搜索。
+
+---
+
+## 七、跑实验
 
 ```bash
+source /opt/dtk-26.04/env.sh
+P=/public/home/zengzhicun/user/huanghaijun/projects/course_ctr_fcn_20261118
+cd $P
+
 # E0 基线（8 种子）
 python3 tools/run_e0_baseline_v2.py \
   --repo code/FCN_repo --workdir . --data-root data \
@@ -106,42 +170,19 @@ python3 tools/run_e0_baseline_v2.py \
   --exp-layers 4 --lin-layers 1 --epochs 30
 ```
 
-`--epochs 30` 是**安全上限**（作者的 19 轮是早停结果，不是最优轮数）。
-实测首种子 23 轮自然早停，未触及上限。**上限是否被触及须如实报告。**
+`--epochs 30` 是安全上限（作者 19 轮是早停结果）；实测首种子 23 轮自然早停，未触及。
 
 ---
 
-## 六、关键事实（勿重复调研）
+## 八、注意事项
 
-| 事实 | 值 |
-|---|---|
-| 复现基准日志 | `code/FCN_repo/checkpoints/Criteo_x4_10_h5/FCNv2_Criteo_016_cde6d2ff.log` |
-| 基准配置 | exp=4 / lin=1，16,532,562 参数 |
-| 基准精度 | valid AUC 0.815627 / test AUC 0.816145 |
-| 基准耗时 | 19 轮早停，204.38 s/epoch（RTX 4090） |
-
-**注意：作者仓库里有两批日志，来自两个不同的代码库。**
-同目录的 `FCNv2_Criteo.log` 是旧实现（3ECN+3LCN，16,138,194 参数），
-**用 HEAD 代码在任何配置下都复现不出这个参数量**，不能作基准。
-辨析见 [`docs/`](docs/) 下相关文档与报告附录 G。
+1. **重跑转换前必须 `rm -f data/*/feature_map.json`**。残留的 feature_map 会让 `build_dataset` 打 `Skip rebuilding` 并静默跳过——「秒完成并报成功」但 h5 是空的。
+2. **训练期间不要跑重 IO**（数行、解压、转 h5）。实测 `wc -l` 扫大文件会把每轮从 260 s 拖到 1266 s。
+3. **作者 `checkpoints/` 下有两批日志，来自两个代码库**。同目录 `FCNv2_Criteo.log` 是旧实现（3ECN+3LCN，16,138,194 参数），**用 HEAD 代码复现不出**，不能作基准。基准是 `FCNv2_Criteo_016_cde6d2ff.log`（exp=4/lin=1，16,532,562）。
 
 ---
 
-## 七、方法论沉淀
-
-本项目最独特的部分不是实验数字，而是一套**自查机制**：
-
-- [`docs/方法论教训_20261119.md`](docs/方法论教训_20261119.md) —— 17 类错误，按「输出看着对但结果不对 / 数字对但对象错 / 判断阈值错」三类分组，每条含根因与防护措施
-- 报告附录 I —— 数值核对方法学：一次真实的手工填表错误及其后果量化
-
-核心原则：
-
-> **数字对了不等于结论对了；数字错了也不等于结论错了。**
-> 后者更危险——拿错的计数去支撑对的结论，它会显得更可信，因为没人会去核一个"看起来精确"的数字。
-
----
-
-## 八、引用
+## 九、引用
 
 ```bibtex
 @inproceedings{fcn2026,
