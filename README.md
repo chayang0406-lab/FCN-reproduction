@@ -1,4 +1,4 @@
-# FCN 复现与环境迭代（海光 DCU 单卡）
+# FCN 复现与环境迭代（海光 DCU / NVIDIA RTX 4090 双平台）
 
 复现 **FCN: Fusing Exponential and Linear Cross Network for CTR Prediction**（KDD'26，DOI `10.1145/3770854.3780177`，arXiv `2407.13349v8`），
 在现有开源实现基础上做**可移植性/性能优化**，并补齐论文要求的多数据集与基线对比。
@@ -9,15 +9,32 @@
 
 ---
 
-## 一、当前状态（2026-11-19 15:50）
+## 一、当前状态（2026-11-21）
+
+### 1.1 复现结果（iPinYou / KKBox 已完成）
+
+在 **NVIDIA RTX 4090 单卡**上，用作者公开代码与超参，两个数据集均复现成功：
+
+| 数据集 | 模型 | TEST AUC | TEST Logloss | 论文报告 | 作者本人日志 | 判定 |
+|---|---|---|---|---|---|---|
+| **iPinYou** | FCNv1 (=FCNp) | **0.7848257** | **0.0055336** | 0.7848 / 0.005529 | 0.784827 / 0.005534 | ✅ 差 1e-6 |
+| **KKBox** | FCNv1 (=FCNp) | **0.8566949** | **0.4747218** | 0.8567 / 0.4754 | 0.855871 / 0.475116 | ✅ 差 0.000005 |
+| **KKBox** | FCNv2 (=FCNsp) | **0.8551047** | 0.4811236 | 0.8551 / 0.4754 | — | ✅ AUC 精确吻合 |
+
+**iPinYou 的强证据**：参数量 21,537,982 与作者日志**完全相同**，早停轮次同为第 19 轮，逐 epoch 曲线最大偏差 1e-4。
+
+> 完整报告：[`report/复现报告.md`](report/复现报告.md)
+
+### 1.2 任务进度
 
 | 项 | 状态 |
 |---|---|
-| 环境（DTK 26.04 / torch 2.7.1 / fuxictr 2.0.1） | ✅ 可用 |
-| **外网** | ✅ 可用，需 `source /root/private_data/.ai_user_info/ai_proxy` |
+| 环境（NVIDIA 4090 / CUDA 13.0 / torch 2.6.0 / fuxictr 2.0.1） | ✅ 可用 |
+| **iPinYou 复现（FCNv1）** | ✅ **完成，AUC 78.4826（作者 78.4827）** |
+| **KKBox 复现（FCNv1 / FCNv2）** | ✅ **完成，AUC 85.6695 / 85.5105** |
+| 数据：iPinYou | ✅ h5 已生成，Σvocab=665,765 **与论文精确相符** |
+| 数据：KKBox | ✅ h5 已生成，Σvocab=91,756 **与论文精确相符** |
 | 数据：Criteo | ✅ 完成（h5 三份，Σvocab=910,747 与作者 39/39 相符） |
-| 数据：iPinYou | ✅ 已下载解压，行数 19,495,974 **与论文精确相符** |
-| 数据：KKBox | ✅ 已下载解压，行数 7,377,418 **与论文精确相符** |
 | 数据：Avazu | ⚠️ 已解压，行数待复核（首次统计受 IO 干扰） |
 | E0 基线 8 种子 | 🔄 运行中（seed2025 完成，2026 进行中） |
 | 基线模型（12 个） | ⏳ 代码已就位（FuxiCTR model_zoo），待接入 |
@@ -31,20 +48,22 @@
 course_ctr_fcn_20261118/
 ├── code/
 │   ├── FCN_repo/           作者原始仓库（零改动，复现基准）
-│   ├── src/                改进实现（LCA 参数化 + Tri-BCE 软权重）
-│   └── configs/            15 个 expid 配置
-├── tools/                  工具脚本（35 个）
-├── scripts/                早期探索脚本
-├── docs/                   39 份过程文档
-├── report/                 课程设计报告
-├── data/                   不入库（28 GB）
-│   ├── Criteo_x4_10_h5/    h5 成品
-│   ├── raw/                三数据集 zip
-│   ├── Avazu_x4/           CSV
-│   ├── iPinYou/            CSV
-│   └── KKBox_x1/           CSV
-└── runs/                   不入库（实验输出）
+│   ├── configs/            15 个 expid 配置
+│   ├── configs_h5_author/  ★ 复现用配置（严格照抄作者日志超参）
+│   └── src/                改进实现（LCA 参数化 + Tri-BCE 软权重）
+├── tools/                  工具脚本
+│   ├── run_expid_fixed.py  修正版训练入口（绕开官方脚本三处缺陷）
+│   ├── h5conv.py           ★ CSV→h5 通用转换（含 vocab 双校验）
+│   └── build_h5_any.py     ★ 按 dataset_config 驱动的转换脚本
+├── report/                 课程设计报告 + ★ 复现报告.md
+└── data/                   不入库（28 GB）
+    ├── raw/                三数据集 zip
+    ├── ipinyou_x1_h5/      h5 成品
+    ├── kkbox_x1_h5/        h5 成品
+    └── Criteo_x4_10_h5/    h5 成品
 ```
+
+> 说明：`docs/`（过程草稿）与 `scripts/`（早期探索脚本）已移出版本控制，保持仓库精简；本地备份于仓库外。
 
 ---
 
@@ -62,6 +81,18 @@ Python : 3.11.9（/usr/local/bin/python3）
          numpy==1.25.0
 cgroup : 6 核 CPU / 115 GB 内存
 ```
+
+**本次复现环境（NVIDIA，2026-11-21）**：
+
+```
+加速卡 : NVIDIA GeForce RTX 4090 (24 GB, 24564 MiB)
+驱动   : 580.82.07 / CUDA 13.0
+PyTorch: 2.6.0+cu124
+Python : 3.11（conda env fcn_cy）
+框架   : fuxictr==2.0.1（与作者要求一致）
+```
+
+两套环境共用同一份模型代码，迁移只改 torch 安装方式（DTK 版 → CUDA 版），**代码零改动**，指标仍可复现到 1e-6。
 
 **外网**（此前误判为无外网，已更正）：
 ```bash
