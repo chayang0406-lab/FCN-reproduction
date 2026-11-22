@@ -1,0 +1,15 @@
+ipinyou_x1_h5:
+    data_format: h5
+    data_root: /public/home/ligroupprotein/chenyan/My_project/fcn_cy/data/
+    train_data: /public/home/ligroupprotein/chenyan/My_project/fcn_cy/data/ipinyou_x1_h5/train.h5
+    valid_data: /public/home/ligroupprotein/chenyan/My_project/fcn_cy/data/ipinyou_x1_h5/valid.h5
+    test_data: /public/home/ligroupprotein/chenyan/My_project/fcn_cy/data/ipinyou_x1_h5/test.h5
+    min_categr_count: 2
+
+kkbox_x1_h5:
+    data_format: h5
+    data_root: /public/home/ligroupprotein/chenyan/My_project/fcn_cy/data/
+    train_data: /public/home/ligroupprotein/chenyan/My_project/fcn_cy/data/kkbox_x1_h5/train.h5
+    valid_data: /public/home/ligroupprotein/chenyan/My_project/fcn_cy/data/kkbox_x1_h5/valid.h5
+    test_data: /public/home/ligroupprotein/chenyan/My_project/fcn_cy/data/kkbox_x1_h5/test.h5
+    min_categr_count: 10

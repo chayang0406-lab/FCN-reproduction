@@ -5,3 +5,4 @@ from .FCNv1_full import *
 from .LCN import *
 from .FCNv2 import *
 from .FCNv1_div import *
+from .FCNv1_de import *
