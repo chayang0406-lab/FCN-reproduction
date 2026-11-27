@@ -6,3 +6,4 @@ from .LCN import *
 from .FCNv2 import *
 from .FCNv1_div import *
 from .FCNv1_de import *
+from .FCNv1_brier import *
