@@ -30,6 +30,8 @@ model.eval(); model.testing = True
 def collect(stage, max_batches=0):
     if stage == "valid":
         _, gen = H5DataLoader(fm, stage="train", **params).make_iterator()
+    elif stage == "train":
+        gen, _ = H5DataLoader(fm, stage="train", **params).make_iterator()
     else:
         gen = H5DataLoader(fm, stage="test", **params).make_iterator()
     P, Y = [], []
